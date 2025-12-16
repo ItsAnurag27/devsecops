@@ -3,12 +3,11 @@ version: "3.8"
 services:
     mongodb:
         container_name: mongo
-        image: mongo:latest
+        image: mongo:7
         environment:
             MONGO_INITDB_DATABASE: wanderlust
         volumes:
-          - ./backend/data:/data/db
-          - ./backend/data/init-mongo.sh:/docker-entrypoint-initdb.d/init-mongo.sh:ro
+          - mongodb_data:/data/db
         ports:
             - "27017:27017"
         healthcheck:
@@ -31,6 +30,9 @@ services:
             - wanderlust-network
         environment:
             - NODE_ENV=docker
+        depends_on:
+            mongodb:
+                condition: service_healthy
 
     frontend:
         container_name: frontend
@@ -47,4 +49,4 @@ networks:
         driver: bridge
 
 volumes:
-    data:
+    mongodb_data:
