@@ -2,7 +2,8 @@ pipeline{
     agent any
  
     environment {
-        SONAR_HOME = tool "Sonar"     
+        SONAR_HOME = tool "Sonar"
+        SONAR_TOKEN = credentials('sonar')
     }
  
     stages{
@@ -20,7 +21,8 @@ pipeline{
                         ${SONAR_HOME}/bin/sonar-scanner \
                         -Dsonar.projectName=wanderlust \
                         -Dsonar.projectKey=wanderlust \
-                        -Dsonar.sources=.
+                        -Dsonar.sources=. \
+                        -Dsonar.token=${SONAR_TOKEN}
                     """
                 }
             }
