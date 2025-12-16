@@ -9,7 +9,7 @@ pipeline{
  
         stage("Clone Code from GitHub"){
             steps{
-                git url: "https://github.com/saransh-del/Wanderlust.git", branch: "main"
+                git url: "https://github.com/ItsAnurag27/devsecops", branch: "main"
             }
         }
  
