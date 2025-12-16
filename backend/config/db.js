@@ -1,21 +1,43 @@
 import mongoose from 'mongoose';
 import { MONGODB_URI } from './utils.js';
+
 export default function connectDB() {
+  const mongoOptions = {
+    retryWrites: true,
+    maxPoolSize: 10,
+    socketTimeoutMS: 45000,
+    serverSelectionTimeoutMS: 5000,
+    socketKeepAliveMS: 300000,
+  };
+
   try {
-    mongoose.connect(MONGODB_URI);
+    if (!MONGODB_URI) {
+      throw new Error('MONGODB_URI environment variable is not defined');
+    }
+
+    mongoose.connect(MONGODB_URI, mongoOptions);
   } catch (err) {
-    console.error(err.message);
+    console.error('❌ Database connection error:', err.message);
     process.exit(1);
   }
 
   const dbConnection = mongoose.connection;
 
   dbConnection.once('open', () => {
-    console.log(`Database connected: ${MONGODB_URI}`);
+    console.log(`✅ Database connected successfully: ${MONGODB_URI}`);
   });
 
   dbConnection.on('error', (err) => {
-    console.error(`connection error: ${MONGODB_URI}`);
+    console.error(`❌ MongoDB connection error: ${err.message}`);
   });
-  return;
+
+  dbConnection.on('disconnected', () => {
+    console.warn('⚠️ Database disconnected');
+  });
+
+  dbConnection.on('reconnected', () => {
+    console.log('✅ Database reconnected');
+  });
+
+  return dbConnection;
 }
