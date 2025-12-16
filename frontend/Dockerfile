@@ -6,7 +6,7 @@ COPY . .
 
 RUN npm i
 
-COPY .env.sample .env.local
+COPY .env.docker .env.local
 
 EXPOSE 5173
 
