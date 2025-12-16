@@ -1,0 +1,148 @@
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+
+  # ---------------- 1. SonarQube Scan (Analyzes code and uploads report) ----------------
+  sonar_scan:
+    runs-on: self-hosted
+    steps:      
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=wanderlust
+            "-Dsonar.projectName=wanderlust"
+            -Dsonar.sources=.
+      
+      - name: Upload SonarQube Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-report
+          path: .scannerwork/report-task.txt
+
+  # ---------------- 2. SonarQube Quality Gate (Checks status using the report) ----------------
+  quality_gate:
+    runs-on: self-hosted
+    needs: sonar_scan
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Download SonarQube Report Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sonar-report
+          path: .scannerwork/
+
+      - name: SonarQube Quality Gate Check
+        uses: SonarSource/sonarqube-quality-gate-action@master
+        with:
+          scanMetadataReportFile: .scannerwork/report-task.txt
+          pollingTimeoutSec: 600
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          
+  # ---------------- 3. OWASP Dependency Check ----------------
+  dependency_check:
+    runs-on: self-hosted
+    needs: quality_gate # Dependency restored to sequential order
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Depcheck
+        uses: dependency-check/Dependency-Check_Action@main
+        id: Depcheck
+        with:
+          project: 'test'
+          path: '.'
+          format: 'HTML'
+          out: 'reports'
+          args: >
+            --failOnCVSS 7
+            --enableRetired
+            --disableNodeAudit
+            --nvdApiDelay 2000
+
+      # Add this step to make the report accessible in GitHub UI
+      - name: Upload Dependency Check Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: reports/
+
+  # ---------------- 4. Trivy Vulnerability Scan ----------------
+  trivy_scan:
+    runs-on: self-hosted
+    needs: dependency_check
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Install Trivy from official apt repo
+      - name: Install Trivy
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install wget apt-transport-https gnupg lsb-release -y
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install trivy -y
+
+      # ---------------- FS SCAN (Source code scan)
+      - name: Trivy FS Scan
+        run: |
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --format table \
+            --output trivy-fs-report.txt || true   # <- workflow continues even if vulnerabilities found
+
+      - name: Upload Trivy FS Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: trivy-fs-report.txt
+
+      # ---------------- IMAGE SCAN (Only if Dockerfile exists)
+      - name: Build Docker Image
+        if: ${{ hashFiles('Dockerfile') != '' }}
+        run: docker build -t trivy-temp-image .
+
+      - name: Trivy Image Scan
+        if: ${{ hashFiles('Dockerfile') != '' }}
+        run: |
+          trivy image trivy-temp-image \
+            --severity HIGH,CRITICAL \
+            --format table \
+            --output trivy-image-report.txt || true   # <- workflow continues even if vulnerabilities found
+
+      - name: Upload Trivy Image Report
+        if: ${{ hashFiles('Dockerfile') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-report
+          path: trivy-image-report.txt
+
+  # ---------------- 5. Deployment ----------------
+  deploy:
+    runs-on: self-hosted
+    needs: trivy_scan
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Deploy Using Docker Compose
+        run: |
+          docker-compose down || true
+          docker-compose up -d --build
