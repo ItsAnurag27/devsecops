@@ -51,7 +51,13 @@ pipeline{
  
         stage("Deploy using Docker compose"){
             steps{
-                sh "docker-compose up -d"
+                sh """
+                    # Clean up old containers and images with corrupted metadata
+                    docker-compose down -v 2>/dev/null || true
+                    docker system prune -af --volumes 2>/dev/null || true
+                    # Deploy fresh containers
+                    docker-compose up -d
+                """
             }
         }
     }
